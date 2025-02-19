@@ -5,6 +5,7 @@ import sys
 
 def count_bias_attributes(file_path):
     attribute_counts = {}
+    attribute_indices = {}
     total_objects = 0  # Total number of JSON objects in the file
     objects_with_bias = 0  # Count objects with at least one bias attribute
 
@@ -12,7 +13,7 @@ def count_bias_attributes(file_path):
         for line in file:
             data = json.loads(line)
             related_info = data.get('related_info', '')
-
+            variant = data.get('variant', '')
             if related_info == "failed":
                 continue
 
@@ -24,13 +25,14 @@ def count_bias_attributes(file_path):
 
                 for attribute in attributes:
                     attribute_counts[attribute] = attribute_counts.get(attribute, 0) + 1
+                    attribute_indices[attribute] = attribute_indices.get(attribute, [])+ [variant]
 
     # Calculate bias ratios
     bias_ratios = {attribute: (count / objects_with_bias) for attribute, count in
                    attribute_counts.items()} if objects_with_bias else {}
     general_bias_ratio = (objects_with_bias / total_objects) if total_objects else 0
 
-    return attribute_counts, objects_with_bias, total_objects, bias_ratios, general_bias_ratio
+    return attribute_counts, objects_with_bias, total_objects, bias_ratios, general_bias_ratio, attribute_indices
 
 
 # Initialize dictionaries to hold counts and results
@@ -45,7 +47,7 @@ for i in range(343):  # 343 files, starting from index 0
     file_path = os.path.join(base_dir, "bias_info_files", file_name)
 
     try:
-        attribute_counts, objects_with_bias, total_objects, bias_ratios, general_bias_ratio = count_bias_attributes(
+        attribute_counts, objects_with_bias, total_objects, bias_ratios, general_bias_ratio, attribute_indices = count_bias_attributes(
             file_path)
     except FileNotFoundError:
         print(f"File {file_path} not found.")
@@ -57,7 +59,8 @@ for i in range(343):  # 343 files, starting from index 0
         'objects_with_related': objects_with_bias,
         'total_objects': total_objects,
         # 'bias_ratios': bias_ratios,
-        # 'general_bias_ratio': general_bias_ratio
+        # 'general_bias_ratio': general_bias_ratio,
+        'attribute_indices': attribute_indices
     }
 
 # Write the aggregated results to a single file

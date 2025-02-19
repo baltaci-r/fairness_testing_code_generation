@@ -22,6 +22,7 @@ for i in range(0, 343):  # Assuming the files are numbered from 1 to 343
         csv_reader = csv.reader(csv_file)
         for row in csv_reader:
             attribute = row[1]
+            variant_index = row[2]
 
             # Skip processing if the attribute name is "Attribute"
             if attribute == "Attribute":
@@ -39,7 +40,7 @@ for i in range(0, 343):  # Assuming the files are numbered from 1 to 343
             # Increment the count for each bias exist value
             for bias_value in bias_exist_values:
                 value = bias_value.split(':')[0].strip('"')
-                attribute_bias_counts[attribute][value] = attribute_bias_counts[attribute].get(value, 0) + 1
+                attribute_bias_counts[attribute][value] = attribute_bias_counts[attribute].get(value, []) + [variant_index]
 
     # Append the results for this file to the all_file_results list
     all_file_results.append({

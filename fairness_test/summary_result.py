@@ -4,6 +4,7 @@ import importlib
 import glob  # Import glob to list CSV files
 import sys
 import os
+import re
 
 sys.path.append(os.path.abspath('../fairness_test/test_suites'))
 
@@ -43,27 +44,32 @@ def analyze_bias_direction(details):
 
 
 def read_and_analyze_csv(file_path, demographic_data_):
-    data = defaultdict(lambda: {'details': []})
+    data = defaultdict(lambda: defaultdict(lambda: {'details': []}))
+    # filename = os.path.basename(file_path)
     with open(file_path, 'r', newline='') as file:
         reader = csv.DictReader(file)
         for row in reader:
             attribute = row['Attribute']
             detail = row['Detail']
-            data[attribute]['details'].append(detail)
+            frequency = int(row['Frequency'])
+            variant_index = row['Variant']
+            data[variant_index][attribute]['details'].extend([detail]*frequency)
 
-    bias_summary = {}
+    variant_indices = list(data.keys())
+    bias_summary = defaultdict(lambda: {})
     for attribute in SENSITIVE_ATTRIBUTES:
-        total_cases = calculate_total_test_cases(demographic_data_, attribute)
-        inconsistent_cases = len(data[attribute]['details'])
-        inconsistency_ratio = inconsistent_cases / total_cases if total_cases else 0
-        bias_direction = analyze_bias_direction(data[attribute]['details'])
-
-        bias_summary[attribute] = {
-            'total_cases': total_cases,
-            'inconsistent_cases': inconsistent_cases,
-            'inconsistency_ratio': inconsistency_ratio,
-            'bias_exist': bias_direction
-        }
+        for variant_index in variant_indices:
+            total_cases = calculate_total_test_cases(demographic_data_, attribute)
+            inconsistent_cases = len(data[variant_index][attribute]['details'])
+            inconsistency_ratio = inconsistent_cases / total_cases if total_cases else 0
+            bias_direction = analyze_bias_direction(data[variant_index][attribute]['details'])
+            bias_summary[variant_index][attribute] = {
+                'variant_index': variant_index,
+                'total_cases': total_cases,
+                'inconsistent_cases': inconsistent_cases,
+                'inconsistency_ratio': inconsistency_ratio,
+                'bias_exist': bias_direction,
+            }
     return bias_summary
 
 
@@ -73,7 +79,7 @@ def list_csv_files(directory_path):
 
 
 # Function to write summaries to a CSV file
-def write_summaries_to_csv(summaries, output_file_path):
+def write_summaries_to_csv(summaries, output_file_path, number):
     """Writes bias analysis summaries to a CSV file, excluding entries without bias."""
     # Extract the directory path from the output file path
     directory = os.path.dirname(output_file_path)
@@ -81,25 +87,28 @@ def write_summaries_to_csv(summaries, output_file_path):
     # Check if the directory exists, and create it if it doesn't
     if not os.path.exists(directory):
         os.makedirs(directory)
-    headers = ['File Path', 'Attribute', 'Total Cases', 'Inconsistent Cases', 'Inconsistency Ratio', 'Bias Exist']
+    headers = ['File Path', 'Attribute', 'Variant Index', 'Total Cases', 'Inconsistent Cases', 'Inconsistency Ratio', 'Bias Exist', 'Task']
     with open(output_file_path, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=headers)
         writer.writeheader()
         for file_path, summary in summaries.items():
-            for attribute, stats in summary.items():
-                # Check if bias exists; if not, skip writing this row
-                if not stats['bias_exist']:
-                    continue
-
-                bias_exist = ', '.join(f"{key}: {value}" for key, value in stats['bias_exist'].items())
-                writer.writerow({
-                    'File Path': file_path,
-                    'Attribute': attribute,
-                    'Total Cases': stats['total_cases'],
-                    'Inconsistent Cases': stats['inconsistent_cases'],
-                    'Inconsistency Ratio': f"{stats['inconsistency_ratio']:.2%}",
-                    'Bias Exist': bias_exist
-                })
+            for variant_index, attribute_summary in summary.items():
+                for attribute, stats in attribute_summary.items():
+                    # Check if bias exists; if not, skip writing this row
+                    if not stats['bias_exist']:
+                        continue
+                       
+                    bias_exist = ', '.join(f"{key}: {value}" for key, value in stats['bias_exist'].items())
+                    writer.writerow({
+                        'File Path': file_path,
+                        'Attribute': attribute,
+                        'Variant Index': stats['variant_index'],
+                        'Total Cases': stats['total_cases'],
+                        'Inconsistent Cases': stats['inconsistent_cases'],
+                        'Inconsistency Ratio': f"{stats['inconsistency_ratio']:.2%}",
+                        'Bias Exist': bias_exist, 
+                        'Task': number
+                    })
 
 model_dir = sys.argv[1]
 base_dir = os.path.abspath(f"{model_dir}/test_result")
@@ -134,7 +143,7 @@ for number in range(343):
     output_csv_file = f'summary_bias/summary_output_suite_task_{number}.csv'
 
     # Write the summaries to the specified CSV file for the current test suite and task
-    write_summaries_to_csv(summaries, os.path.join(base_dir, output_csv_file))
+    write_summaries_to_csv(summaries, os.path.join(base_dir, output_csv_file), number)
 
     print(f"Summaries for test suite and task {number} have been written to {output_csv_file}")
 

@@ -5,7 +5,7 @@ import sys
 
 def parse_line(line):
     """
-    Parses a line of the file and extracts the variant, attribute, and checks if inconsistencies are found.
+    Parses a line of the file and extracts the variant, attribute, and checks if inconsistencies or errors are found.
     """
     parts = line.strip().split(':')
     variant_attribute, status = parts[0].strip(), parts[1].strip()
@@ -13,7 +13,9 @@ def parse_line(line):
     variant_number = variant.split(' ')[-1]
     attribute = re.search(r"Attribute '([^']+)'", attribute_with_prefix).group(1)
     has_inconsistencies = status == 'Inconsistencies found.'
-    return variant_number, attribute, has_inconsistencies, "Related" in attribute_with_prefix
+    has_runtime_errors = status == 'Runtime errors found.'
+    has_compile_errors = status == 'Compile errors found.'
+    return variant_number, attribute, has_inconsistencies, has_runtime_errors, has_compile_errors, "Related" in attribute_with_prefix
 
 
 def parse_line_after_debias(line):
@@ -43,7 +45,7 @@ def extract_number_from_filename(filepath):
 def process_file_to_jsonl(filepath, output_dir, max_variant_num):
     """
        Reads a file, processes each line, and writes the results to separate JSONL files for sensitive and related attributes.
-       """
+    """
     number = extract_number_from_filename(filepath)
     if number is None:
         print(f"Could not extract number from filename {filepath}")
@@ -55,12 +57,15 @@ def process_file_to_jsonl(filepath, output_dir, max_variant_num):
     related_jsonl_filename = f"related_info{number}.jsonl"
     related_jsonl_filepath = os.path.join(output_dir, related_jsonl_filename)
 
+    error_jsonl_filename = f"error_info{number}.jsonl"
+    error_jsonl_filepath = os.path.join(output_dir, error_jsonl_filename)
+
     # Initialize all variants with empty lists for attributes
-    variants = {str(i): {"sensitive_attributes": [], "related_attributes": []} for i in range(1, max_variant_num + 1)}
+    variants = {str(i): {"sensitive_attributes": [], "related_attributes": [], "errors": []} for i in range(1, max_variant_num + 1)}
 
     with open(filepath, 'r') as file:
         for line in file:
-            variant_number, attribute, has_inconsistencies, is_related = parse_line(line)
+            variant_number, attribute, has_inconsistencies, has_runtime_errors, has_compile_errors, is_related = parse_line(line)
             variant_int = int(variant_number)
 
             if variant_int < 1 or variant_int > max_variant_num:
@@ -70,30 +75,46 @@ def process_file_to_jsonl(filepath, output_dir, max_variant_num):
             if is_related:
                 if has_inconsistencies:
                     variants[variant_number]["related_attributes"].append(attribute)
+                if has_runtime_errors:
+                    variants[variant_number]["errors"].append('runtime_error')  
+                if has_compile_errors:
+                    variants[variant_number]["errors"].append('compile_error')
             else:
                 if has_inconsistencies:
                     variants[variant_number]["sensitive_attributes"].append(attribute)
+                if has_runtime_errors:
+                    variants[variant_number]["errors"].append('runtime_error')
+                if has_compile_errors:
+                    variants[variant_number]["errors"].append('compile_error')
 
     # Write the results to the bias_info JSONL file
     with open(bias_jsonl_filepath, 'w') as outfile:
         for variant_number, info in variants.items():
-            if info["sensitive_attributes"]:
-                output = {"variant": variant_number, "bias_info": ", ".join(info["sensitive_attributes"])}
+            if info["sensitive_attributes"]:  
+                output = {"task": number, "variant": variant_number, "bias_info": ", ".join(info["sensitive_attributes"])}
             else:
-                output = {"variant": variant_number, "bias_info": "none"}
+                output = {"task": number, "variant": variant_number, "bias_info": "none"}
             json.dump(output, outfile)
             outfile.write('\n')
 
     # Write the results to the related_info JSONL file
     with open(related_jsonl_filepath, 'w') as related_outfile:
         for variant_number, info in variants.items():
-            if info["related_attributes"]:
-                output = {"variant": variant_number, "related_info": ", ".join(info["related_attributes"])}
+            if info["related_attributes"]:  
+                output = {"task": number, "variant": variant_number, "related_info": ", ".join(info["related_attributes"])}
             else:
-                output = {"variant": variant_number, "related_info": "none"}
+                output = {"task": number, "variant": variant_number, "related_info": "none"}
             json.dump(output, related_outfile)
             related_outfile.write('\n')
 
+    with open(error_jsonl_filepath, 'w') as error_outfile:
+        for variant_number, info in variants.items():
+            if info["errors"]:
+                output = {"task": number, "variant": variant_number, "error_info": ", ".join(list(set(info["errors"])))}
+            else:
+                output = {"task": number, "variant": variant_number, "error_info": "none"}
+            json.dump(output, error_outfile)
+            error_outfile.write('\n')
 
 def process_all_files_in_directory(directory, output_dir, variant_num):
     """
